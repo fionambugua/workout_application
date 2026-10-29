@@ -4,7 +4,7 @@ from marshmallow import ValidationError
 from sqlalchemy.exc import IntegrityError
 from werkzeug.exceptions import HTTPException
 
-from models import db, Exercise, Workout
+from models import db, Exercise, Workout, WorkoutExercise
 from schemas import (
     exercise_schema,
     exercises_schema,
@@ -12,13 +12,10 @@ from schemas import (
     workout_schema,
     workouts_schema,
     workout_detail_schema,
+    workout_exercise_schema,
 )
 
 api = Blueprint("api", __name__)
-
-
-def not_implemented():
-    return jsonify({"error": "Not implemented yet."}), 501
 
 
 def get_json_body():
@@ -113,7 +110,16 @@ def delete_exercise(id):
 
 @api.post("/workouts/<int:workout_id>/exercises/<int:exercise_id>/workout_exercises")
 def add_exercise_to_workout(workout_id, exercise_id):
-    return not_implemented()
+    workout = get_or_404(Workout, workout_id)
+    exercise = get_or_404(Exercise, exercise_id)
+    data = workout_exercise_schema.load(get_json_body())
+
+    workout_exercise = build(WorkoutExercise, workout=workout, exercise=exercise, **data)
+    db.session.add(workout_exercise)
+    # Adding the same exercise to a workout twice breaks the unique
+    # constraint; the IntegrityError handler turns that into a 409.
+    db.session.commit()
+    return jsonify(workout_exercise_schema.dump(workout_exercise)), 201
 
 
 # ---------- Error handling ----------
