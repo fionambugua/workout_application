@@ -6,6 +6,9 @@ from werkzeug.exceptions import HTTPException
 
 from models import db, Exercise, Workout
 from schemas import (
+    exercise_schema,
+    exercises_schema,
+    exercise_detail_schema,
     workout_schema,
     workouts_schema,
     workout_detail_schema,
@@ -78,22 +81,32 @@ def delete_workout(id):
 
 @api.get("/exercises")
 def list_exercises():
-    return not_implemented()
+    exercises = Exercise.query.order_by(Exercise.name).all()
+    return jsonify(exercises_schema.dump(exercises)), 200
 
 
 @api.get("/exercises/<int:id>")
 def get_exercise(id):
-    return not_implemented()
+    exercise = get_or_404(Exercise, id)
+    return jsonify(exercise_detail_schema.dump(exercise)), 200
 
 
 @api.post("/exercises")
 def create_exercise():
-    return not_implemented()
+    data = exercise_schema.load(get_json_body())
+    exercise = build(Exercise, **data)
+    db.session.add(exercise)
+    db.session.commit()
+    return jsonify(exercise_schema.dump(exercise)), 201
 
 
 @api.delete("/exercises/<int:id>")
 def delete_exercise(id):
-    return not_implemented()
+    exercise = get_or_404(Exercise, id)
+    # The relationship cascade also removes this exercise from every workout.
+    db.session.delete(exercise)
+    db.session.commit()
+    return "", 204
 
 
 # ---------- Workout exercises ----------
