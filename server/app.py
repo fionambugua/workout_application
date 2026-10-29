@@ -1,7 +1,15 @@
-from flask import Blueprint, Flask, jsonify
+from flask import Blueprint, Flask, abort, jsonify, request
 from flask_migrate import Migrate
+from marshmallow import ValidationError
+from sqlalchemy.exc import IntegrityError
+from werkzeug.exceptions import HTTPException
 
-from models import db
+from models import db, Exercise, Workout
+from schemas import (
+    workout_schema,
+    workouts_schema,
+    workout_detail_schema,
+)
 
 api = Blueprint("api", __name__)
 
@@ -10,26 +18,60 @@ def not_implemented():
     return jsonify({"error": "Not implemented yet."}), 501
 
 
+def get_json_body():
+    """Return the request body as a dict, or stop with a 400 error."""
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        abort(400, description="Request body must be a JSON object.")
+    return data
+
+
+def get_or_404(model, id):
+    record = db.session.get(model, id)
+    if record is None:
+        abort(404, description=f"{model.__name__} {id} not found.")
+    return record
+
+
+def build(model, **fields):
+    """Create a model instance, turning model validation errors into a 400."""
+    try:
+        return model(**fields)
+    except ValueError as error:
+        # Raised by the @validates methods in models.py.
+        abort(400, description=str(error))
+
+
 # ---------- Workouts ----------
 
 @api.get("/workouts")
 def list_workouts():
-    return not_implemented()
+    workouts = Workout.query.order_by(Workout.date, Workout.id).all()
+    return jsonify(workouts_schema.dump(workouts)), 200
 
 
 @api.get("/workouts/<int:id>")
 def get_workout(id):
-    return not_implemented()
+    workout = get_or_404(Workout, id)
+    return jsonify(workout_detail_schema.dump(workout)), 200
 
 
 @api.post("/workouts")
 def create_workout():
-    return not_implemented()
+    data = workout_schema.load(get_json_body())
+    workout = build(Workout, **data)
+    db.session.add(workout)
+    db.session.commit()
+    return jsonify(workout_schema.dump(workout)), 201
 
 
 @api.delete("/workouts/<int:id>")
 def delete_workout(id):
-    return not_implemented()
+    workout = get_or_404(Workout, id)
+    # The relationship cascade also deletes this workout's WorkoutExercise rows.
+    db.session.delete(workout)
+    db.session.commit()
+    return "", 204
 
 
 # ---------- Exercises ----------
@@ -59,6 +101,33 @@ def delete_exercise(id):
 @api.post("/workouts/<int:workout_id>/exercises/<int:exercise_id>/workout_exercises")
 def add_exercise_to_workout(workout_id, exercise_id):
     return not_implemented()
+
+
+# ---------- Error handling ----------
+# Every error response has the shape {"error": "...", "details": {...}}.
+
+@api.app_errorhandler(ValidationError)
+def handle_schema_error(error):
+    return jsonify({"error": "Validation failed.", "details": error.messages}), 400
+
+
+@api.app_errorhandler(IntegrityError)
+def handle_integrity_error(error):
+    db.session.rollback()
+    if "UNIQUE" in str(error.orig):
+        return jsonify({"error": "This record already exists."}), 409
+    return jsonify({"error": "The data breaks a database rule."}), 400
+
+
+@api.app_errorhandler(HTTPException)
+def handle_http_error(error):
+    return jsonify({"error": error.description}), error.code
+
+
+@api.app_errorhandler(Exception)
+def handle_unexpected_error(error):
+    db.session.rollback()
+    return jsonify({"error": "An unexpected server error occurred."}), 500
 
 
 def create_app(test_config=None):
