@@ -7,9 +7,13 @@ def not_blank(value):
         raise ValidationError("Must not be blank.")
 
 
-def StrictBool(**kwargs):
+class StrictBool(fields.Boolean):
     """Only real JSON true/false are accepted, so "yes" or 1 are not converted."""
-    return fields.Bool(truthy={True}, falsy={False}, **kwargs)
+
+    def _deserialize(self, value, attr, data, **kwargs):
+        if not isinstance(value, bool):
+            raise self.make_error("invalid", input=value)
+        return value
 
 
 def PositiveInt(**kwargs):
